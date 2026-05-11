@@ -18,6 +18,7 @@ const bookmarkletLink = document.querySelector("#bookmarklet-link");
 const copyBookmarkletButton = document.querySelector("#copy-bookmarklet-button");
 
 let resolvedSpotifyUrl = "";
+let resolvedLabel = "Spotify URL";
 
 const bookmarkletBody =
   '(async()=>{const h=location.hostname.toLowerCase();if(!h.endsWith("music.apple.com")&&!h.endsWith("itunes.apple.com")){alert("Open an Apple Music song page first.");return;}const e=new URL("https://api.song.link/v1-alpha.1/links");e.searchParams.set("url",location.href);e.searchParams.set("userCountry","US");const r=await fetch(e,{headers:{accept:"application/json"}});if(!r.ok)throw new Error("Songlink returned "+r.status);const d=await r.json();const s=d.linksByPlatform&&d.linksByPlatform.spotify&&d.linksByPlatform.spotify.url;const n=d.entitiesByUniqueId||{};const id=d.entityUniqueId;const a=n[id]||Object.values(n).find(x=>x&&x.type==="song")||{};const q=[a.artistName,a.title].filter(Boolean).join(" ").trim();const u=s||(q&&("https://open.spotify.com/search/"+encodeURIComponent(q)));if(!u){alert("No Spotify match found.");return;}try{await navigator.clipboard.writeText(u);alert("Copied "+(s?"Spotify URL":"Spotify search")+":\\n"+u);}catch(t){prompt(s?"Spotify URL":"Spotify search",u);}})().catch(e=>alert("Apple Music to Spotify failed: "+(e&&e.message?e.message:e)))';
@@ -47,11 +48,13 @@ form.addEventListener("submit", async (event) => {
   try {
     const match = await resolveSpotifyMatch(appleUrl, country);
     renderResult(match);
-    await copyText(match.spotifyUrl);
-    setStatus(
-      match.isDirect ? "Spotify URL copied." : "Spotify search copied.",
-      "success",
-    );
+
+    try {
+      await copyText(match.spotifyUrl);
+      setStatus(`${resolvedLabel} copied.`, "success");
+    } catch (copyError) {
+      setStatus(`${resolvedLabel} ready. Press Copy to save it.`);
+    }
   } catch (error) {
     showError(readableError(error));
   } finally {
@@ -74,7 +77,7 @@ copyButton.addEventListener("click", async () => {
 
   try {
     await copyText(resolvedSpotifyUrl);
-    setStatus("Spotify URL copied.", "success");
+    setStatus(`${resolvedLabel} copied.`, "success");
   } catch (error) {
     showError("Copy failed. Select the link and copy it manually.");
   }
@@ -196,15 +199,14 @@ function pickEntity(payload) {
 function renderResult(match) {
   const { entity, spotifyUrl, isDirect } = match;
   resolvedSpotifyUrl = spotifyUrl;
+  resolvedLabel = isDirect ? "Spotify URL" : "Spotify search";
 
   const title = entity.title || "Spotify match";
   const artist = entity.artistName || "Artist unavailable";
 
   trackTitleEl.textContent = title;
   trackArtistEl.textContent = artist;
-  document.querySelector("#result-title").textContent = isDirect
-    ? "Spotify URL"
-    : "Spotify search";
+  document.querySelector("#result-title").textContent = resolvedLabel;
   spotifyUrlEl.href = spotifyUrl;
   spotifyUrlEl.textContent = spotifyUrl;
   openButton.href = spotifyUrl;
@@ -258,7 +260,7 @@ async function copyText(text) {
 
 function setBusy(isBusy) {
   convertButton.disabled = isBusy;
-  convertButton.textContent = isBusy ? "Finding..." : "Get Spotify URL";
+  convertButton.textContent = isBusy ? "Finding..." : "Convert";
 }
 
 function setStatus(message, tone = "neutral") {

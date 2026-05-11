@@ -14,8 +14,15 @@
     <main class="shell">
       <section class="tool" aria-labelledby="app-title">
         <header class="masthead">
-          <p class="eyebrow">Fast link handoff</p>
-          <h1 id="app-title">Apple Music to Spotify</h1>
+          <div>
+            <p class="eyebrow">Fast link handoff</p>
+            <h1 id="app-title">Apple Music to Spotify</h1>
+          </div>
+          <div class="route-chip" aria-label="Conversion route">
+            <span>Apple</span>
+            <span aria-hidden="true">to</span>
+            <span>Spotify</span>
+          </div>
         </header>
 
         <form class="converter" id="converter-form">
@@ -51,7 +58,7 @@
               >
             </label>
             <button class="primary-button" id="convert-button" type="submit">
-              Get Spotify URL
+              Convert
             </button>
           </div>
         </form>
@@ -67,7 +74,7 @@
             <a class="spotify-url" id="spotify-url" href="#" target="_blank" rel="noreferrer"></a>
           </div>
           <div class="result-actions">
-            <button class="primary-button compact" id="copy-button" type="button">
+            <button class="success-button compact" id="copy-button" type="button">
               Copy
             </button>
             <a class="secondary-link" id="open-button" href="#" target="_blank" rel="noreferrer">
@@ -77,11 +84,13 @@
         </section>
 
         <footer class="utility-bar">
-          <a class="bookmarklet" id="bookmarklet-link" href="#">Bookmarklet</a>
-          <button class="text-button" id="copy-bookmarklet-button" type="button">
-            Copy bookmarklet
-          </button>
-          <span>Powered by Songlink/Odesli</span>
+          <div class="bookmarklet-group">
+            <a class="bookmarklet" id="bookmarklet-link" href="#">Bookmarklet</a>
+            <button class="text-button" id="copy-bookmarklet-button" type="button">
+              Copy bookmarklet
+            </button>
+          </div>
+          <span class="powered-by">Songlink/Odesli</span>
         </footer>
       </section>
     </main>
