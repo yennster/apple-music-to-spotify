@@ -4,11 +4,21 @@ const SPOTIFY_TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
 const SPOTIFY_SEARCH_ENDPOINT = "https://api.spotify.com/v1/search";
 const DEFAULT_COUNTRY = "US";
 const MIN_SPOTIFY_SCORE = 0.78;
+const CLIENT_WINDOW_MS = 60000;
+const CLIENT_MAX_REQUESTS = 20;
+const SPOTIFY_REQUEST_INTERVAL_MS = 700;
+const SPOTIFY_SEARCH_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const SPOTIFY_SEARCH_CACHE_MAX = 200;
 
 let spotifyTokenCache = {
   accessToken: "",
   expiresAt: 0,
 };
+
+const clientRateLimitStore = new Map();
+const spotifySearchCache = new Map();
+let spotifyRequestQueue = Promise.resolve();
+let nextSpotifyRequestAt = 0;
 
 module.exports = async function handler(request, response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
@@ -22,6 +32,14 @@ module.exports = async function handler(request, response) {
 
   if (request.method !== "GET") {
     response.status(405).json({ error: "Method not allowed." });
+    return;
+  }
+
+  const rateLimit = checkClientRateLimit(getClientRateLimitKey(request));
+
+  if (!rateLimit.allowed) {
+    response.setHeader("Retry-After", String(Math.ceil(rateLimit.retryAfterMs / 1000)));
+    response.status(429).json({ error: "Too many requests. Please slow down for a moment." });
     return;
   }
 
@@ -48,8 +66,13 @@ module.exports = async function handler(request, response) {
       } catch (spotifyError) {
         payload.spotifyMatch = {
           source: "search-fallback",
-          reason: "spotify_lookup_failed",
+          reason: spotifyError.publicReason || "spotify_lookup_failed",
         };
+
+        if (spotifyError.retryAfterSeconds) {
+          payload.spotifyMatch.retryAfterSeconds = spotifyError.retryAfterSeconds;
+          response.setHeader("Retry-After", String(spotifyError.retryAfterSeconds));
+        }
       }
     }
 
@@ -181,7 +204,39 @@ async function getSpotifyAccessToken({ clientId, clientSecret }) {
   return spotifyTokenCache.accessToken;
 }
 
+function throttledSpotifyFetch(url, options) {
+  const run = spotifyRequestQueue
+    .catch(() => {})
+    .then(async () => {
+      const waitMs = Math.max(0, nextSpotifyRequestAt - Date.now());
+
+      if (waitMs) {
+        await delay(waitMs);
+      }
+
+      nextSpotifyRequestAt = Date.now() + SPOTIFY_REQUEST_INTERVAL_MS;
+      const response = await fetch(url, options);
+
+      if (response.status === 429) {
+        const retryAfterMs = readRetryAfterMs(response);
+        nextSpotifyRequestAt = Math.max(nextSpotifyRequestAt, Date.now() + retryAfterMs);
+      }
+
+      return response;
+    });
+
+  spotifyRequestQueue = run.catch(() => {});
+  return run;
+}
+
 async function searchSpotifyTracks(token, target, userCountry) {
+  const cacheKey = getSpotifySearchCacheKey(target, userCountry);
+  const cachedTracks = readSpotifySearchCache(cacheKey);
+
+  if (cachedTracks) {
+    return cachedTracks;
+  }
+
   const queries = buildSpotifyQueries(target);
   const seen = new Set();
   const tracks = [];
@@ -193,12 +248,16 @@ async function searchSpotifyTracks(token, target, userCountry) {
     endpoint.searchParams.set("market", userCountry);
     endpoint.searchParams.set("limit", "10");
 
-    const response = await fetch(endpoint, {
+    const response = await throttledSpotifyFetch(endpoint, {
       headers: {
         accept: "application/json",
         authorization: `Bearer ${token}`,
       },
     });
+
+    if (response.status === 429) {
+      throw spotifyRateLimitError(response);
+    }
 
     if (!response.ok) {
       continue;
@@ -216,6 +275,7 @@ async function searchSpotifyTracks(token, target, userCountry) {
     }
   }
 
+  writeSpotifySearchCache(cacheKey, tracks);
   return tracks;
 }
 
@@ -332,6 +392,120 @@ function spotifyTrackToEntity(track) {
     apiProvider: "spotify",
     platforms: ["spotify"],
   };
+}
+
+function checkClientRateLimit(key) {
+  const now = Date.now();
+  const existing = clientRateLimitStore.get(key);
+  const bucket =
+    existing && existing.resetAt > now
+      ? existing
+      : {
+          count: 0,
+          resetAt: now + CLIENT_WINDOW_MS,
+        };
+
+  bucket.count += 1;
+  clientRateLimitStore.set(key, bucket);
+  cleanupClientRateLimitStore(now);
+
+  if (bucket.count > CLIENT_MAX_REQUESTS) {
+    return {
+      allowed: false,
+      retryAfterMs: Math.max(1000, bucket.resetAt - now),
+    };
+  }
+
+  return { allowed: true, retryAfterMs: 0 };
+}
+
+function cleanupClientRateLimitStore(now) {
+  if (clientRateLimitStore.size < 500) {
+    return;
+  }
+
+  for (const [key, bucket] of clientRateLimitStore.entries()) {
+    if (bucket.resetAt <= now) {
+      clientRateLimitStore.delete(key);
+    }
+  }
+}
+
+function getClientRateLimitKey(request) {
+  const forwardedFor = request.headers["x-forwarded-for"];
+  const firstForwardedIp = Array.isArray(forwardedFor)
+    ? forwardedFor[0]
+    : String(forwardedFor || "").split(",")[0];
+  const realIp = request.headers["x-real-ip"];
+  const realIpValue = Array.isArray(realIp) ? realIp[0] : String(realIp || "");
+
+  return (
+    firstForwardedIp.trim() ||
+    realIpValue.trim() ||
+    request.socket?.remoteAddress ||
+    "unknown"
+  );
+}
+
+function getSpotifySearchCacheKey(target, userCountry) {
+  return [
+    userCountry,
+    normalizeText(target.artistName),
+    normalizeText(target.title),
+    normalizeText(target.albumName),
+    target.durationMs || "",
+  ].join("|");
+}
+
+function readSpotifySearchCache(key) {
+  const entry = spotifySearchCache.get(key);
+
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.expiresAt <= Date.now()) {
+    spotifySearchCache.delete(key);
+    return null;
+  }
+
+  return entry.tracks;
+}
+
+function writeSpotifySearchCache(key, tracks) {
+  spotifySearchCache.set(key, {
+    expiresAt: Date.now() + SPOTIFY_SEARCH_CACHE_TTL_MS,
+    tracks,
+  });
+
+  if (spotifySearchCache.size <= SPOTIFY_SEARCH_CACHE_MAX) {
+    return;
+  }
+
+  const oldestKey = spotifySearchCache.keys().next().value;
+
+  if (oldestKey) {
+    spotifySearchCache.delete(oldestKey);
+  }
+}
+
+function spotifyRateLimitError(response) {
+  const retryAfterSeconds = Math.max(1, Math.ceil(readRetryAfterMs(response) / 1000));
+  const error = new Error("Spotify rate limit reached.");
+  error.publicReason = "spotify_rate_limited";
+  error.retryAfterSeconds = retryAfterSeconds;
+  return error;
+}
+
+function readRetryAfterMs(response) {
+  const retryAfterSeconds = Number(response.headers.get("retry-after"));
+  return Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+    ? retryAfterSeconds * 1000
+    : 3000;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function getAppleMetadata(appleUrl, userCountry) {
