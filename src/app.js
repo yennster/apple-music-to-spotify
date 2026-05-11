@@ -1,4 +1,5 @@
 const API_BASE = "https://api.song.link/v1-alpha.1/links";
+const PROXY_BASE = "/api/links";
 const DEFAULT_COUNTRY = "US";
 
 const form = document.querySelector("#converter-form");
@@ -21,7 +22,7 @@ let resolvedSpotifyUrl = "";
 let resolvedLabel = "Spotify URL";
 
 const bookmarkletBody =
-  '(async()=>{const h=location.hostname.toLowerCase();if(!h.endsWith("music.apple.com")&&!h.endsWith("itunes.apple.com")){alert("Open an Apple Music song page first.");return;}const e=new URL("https://api.song.link/v1-alpha.1/links");e.searchParams.set("url",location.href);e.searchParams.set("userCountry","US");const r=await fetch(e,{headers:{accept:"application/json"}});if(!r.ok)throw new Error("Songlink returned "+r.status);const d=await r.json();const s=d.linksByPlatform&&d.linksByPlatform.spotify&&d.linksByPlatform.spotify.url;const n=d.entitiesByUniqueId||{};const id=d.entityUniqueId;const a=n[id]||Object.values(n).find(x=>x&&x.type==="song")||{};const q=[a.artistName,a.title].filter(Boolean).join(" ").trim();const u=s||(q&&("https://open.spotify.com/search/"+encodeURIComponent(q)));if(!u){alert("No Spotify match found.");return;}try{await navigator.clipboard.writeText(u);alert("Copied "+(s?"Spotify URL":"Spotify search")+":\\n"+u);}catch(t){prompt(s?"Spotify URL":"Spotify search",u);}})().catch(e=>alert("Apple Music to Spotify failed: "+(e&&e.message?e.message:e)))';
+  '(async()=>{const h=location.hostname.toLowerCase();if(!h.endsWith("music.apple.com")&&!h.endsWith("itunes.apple.com")){alert("Open an Apple Music song page first.");return;}const e=new URL("https://music.jennyspeelman.dev/api/links");e.searchParams.set("url",location.href);e.searchParams.set("userCountry","US");const r=await fetch(e,{headers:{accept:"application/json"}});if(!r.ok)throw new Error("Songlink returned "+r.status);const d=await r.json();const s=d.linksByPlatform&&d.linksByPlatform.spotify&&d.linksByPlatform.spotify.url;const n=d.entitiesByUniqueId||{};const id=d.entityUniqueId;const a=n[id]||Object.values(n).find(x=>x&&x.type==="song")||{};const q=[a.artistName,a.title].filter(Boolean).join(" ").trim();const u=s||(q&&("https://open.spotify.com/search/"+encodeURIComponent(q)));if(!u){alert("No Spotify match found.");return;}try{await navigator.clipboard.writeText(u);alert("Copied "+(s?"Spotify URL":"Spotify search")+":\\n"+u);}catch(t){prompt(s?"Spotify URL":"Spotify search",u);}})().catch(e=>alert("Apple Music to Spotify failed: "+(e&&e.message?e.message:e)))';
 const bookmarkletUrl = `javascript:${bookmarkletBody}`;
 
 bookmarkletLink.href = bookmarkletUrl;
@@ -154,7 +155,7 @@ function normalizeCountry(value) {
 }
 
 async function resolveSpotifyMatch(appleUrl, country) {
-  const endpoint = new URL(API_BASE);
+  const endpoint = getLinksEndpoint();
   endpoint.searchParams.set("url", appleUrl);
   endpoint.searchParams.set("userCountry", country);
 
@@ -181,6 +182,19 @@ async function resolveSpotifyMatch(appleUrl, country) {
     pageUrl: payload.pageUrl,
     entity,
   };
+}
+
+function getLinksEndpoint() {
+  if (shouldUseProxy()) {
+    return new URL(PROXY_BASE, window.location.origin);
+  }
+
+  return new URL(API_BASE);
+}
+
+function shouldUseProxy() {
+  const hostname = window.location.hostname.toLowerCase();
+  return hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "";
 }
 
 function pickEntity(payload) {

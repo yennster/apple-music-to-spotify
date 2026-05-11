@@ -24,6 +24,8 @@ https://api.song.link/v1-alpha.1/links?url=<APPLE_MUSIC_URL>&userCountry=US
 
 It then reads `linksByPlatform.spotify.url` from the JSON response. When that field is missing, it uses the song metadata in `entitiesByUniqueId` to build a Spotify search URL.
 
+In production, the browser calls the same-origin Vercel function at `/api/links`, which proxies Songlink and avoids third-party CORS restrictions. Localhost uses Songlink directly.
+
 ## Notes
 
 - Country defaults to `US`; change it in the UI if music availability should be resolved elsewhere.
