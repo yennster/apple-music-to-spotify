@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Convert an Apple Music song link into a Spotify song URL."
+    >
+    <title>Apple Music to Spotify</title>
+    <link rel="stylesheet" href="src/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="tool" aria-labelledby="app-title">
+        <header class="masthead">
+          <p class="eyebrow">Fast link handoff</p>
+          <h1 id="app-title">Apple Music to Spotify</h1>
+        </header>
+
+        <form class="converter" id="converter-form">
+          <div class="field">
+            <label for="apple-url">Apple Music URL</label>
+            <div class="url-row">
+              <input
+                id="apple-url"
+                name="apple-url"
+                type="url"
+                inputmode="url"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="https://music.apple.com/..."
+                required
+              >
+              <button class="secondary-button" id="paste-button" type="button">
+                Paste
+              </button>
+            </div>
+          </div>
+
+          <div class="action-row">
+            <label class="country-field" for="user-country">
+              Country
+              <input
+                id="user-country"
+                name="user-country"
+                maxlength="2"
+                pattern="[A-Za-z]{2}"
+                value="US"
+                aria-label="Two-letter country code"
+              >
+            </label>
+            <button class="primary-button" id="convert-button" type="submit">
+              Get Spotify URL
+            </button>
+          </div>
+        </form>
+
+        <p class="status" id="status" role="status" aria-live="polite"></p>
+
+        <section class="result" id="result" aria-labelledby="result-title" hidden>
+          <img class="artwork" id="artwork" alt="">
+          <div class="track-copy">
+            <p class="result-label" id="result-title">Spotify URL</p>
+            <p class="track-title" id="track-title"></p>
+            <p class="track-artist" id="track-artist"></p>
+            <a class="spotify-url" id="spotify-url" href="#" target="_blank" rel="noreferrer"></a>
+          </div>
+          <div class="result-actions">
+            <button class="primary-button compact" id="copy-button" type="button">
+              Copy
+            </button>
+            <a class="secondary-link" id="open-button" href="#" target="_blank" rel="noreferrer">
+              Open
+            </a>
+          </div>
+        </section>
+
+        <footer class="utility-bar">
+          <a class="bookmarklet" id="bookmarklet-link" href="#">Bookmarklet</a>
+          <button class="text-button" id="copy-bookmarklet-button" type="button">
+            Copy bookmarklet
+          </button>
+          <span>Powered by Songlink/Odesli</span>
+        </footer>
+      </section>
+    </main>
+
+    <script src="src/app.js"></script>
+  </body>
+</html>
