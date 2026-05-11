@@ -101,10 +101,6 @@ appleUrlInput.addEventListener("paste", () => {
   }, 0);
 });
 
-countryInput.addEventListener("input", () => {
-  countryInput.value = countryInput.value.toUpperCase();
-});
-
 const incomingUrl = new URLSearchParams(window.location.search).get("url");
 
 if (incomingUrl) {

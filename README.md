@@ -10,7 +10,7 @@ Start a static server from this folder:
 python3 -m http.server 8000
 ```
 
-Open `http://localhost:8000`, paste an Apple Music song link, and run the conversion. When a Spotify match is found, the app copies the Spotify URL and shows the link on screen. If Songlink does not return an exact Spotify link, the app copies a Spotify search URL using the resolved title and artist.
+Open `http://localhost:8000`, choose the music-availability country if needed, paste an Apple Music song link, and run the conversion. When a Spotify match is found, the app copies the Spotify URL and shows the link on screen. If Songlink does not return an exact Spotify link, the app copies a Spotify search URL using the resolved title and artist.
 
 The `Bookmarklet` link in the app can be dragged to the bookmarks bar. Use it while viewing an Apple Music song page to copy the Spotify URL without opening the app first.
 
@@ -28,6 +28,6 @@ In production, the browser calls the same-origin Vercel function at `/api/links`
 
 ## Notes
 
-- Country defaults to `US`; change it in the UI if music availability should be resolved elsewhere.
+- Country defaults to United States; change the dropdown if music availability should be resolved elsewhere.
 - Songlink may not find every direct Spotify URL, especially when regional catalogs differ.
 - The public API has rate limits, so repeated rapid conversions can temporarily fail.

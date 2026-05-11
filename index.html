@@ -48,14 +48,32 @@
           <div class="action-row">
             <label class="country-field" for="user-country">
               Country
-              <input
-                id="user-country"
-                name="user-country"
-                maxlength="2"
-                pattern="[A-Za-z]{2}"
-                value="US"
-                aria-label="Two-letter country code"
-              >
+              <span class="select-wrap">
+                <select
+                  id="user-country"
+                  name="user-country"
+                  aria-label="Country for music availability"
+                >
+                  <option value="US" selected>United States</option>
+                  <option value="NL">Netherlands</option>
+                  <option value="GB">United Kingdom</option>
+                  <option value="CA">Canada</option>
+                  <option value="AU">Australia</option>
+                  <option value="DE">Germany</option>
+                  <option value="FR">France</option>
+                  <option value="ES">Spain</option>
+                  <option value="IT">Italy</option>
+                  <option value="BE">Belgium</option>
+                  <option value="DK">Denmark</option>
+                  <option value="NO">Norway</option>
+                  <option value="SE">Sweden</option>
+                  <option value="IE">Ireland</option>
+                  <option value="BR">Brazil</option>
+                  <option value="MX">Mexico</option>
+                  <option value="JP">Japan</option>
+                  <option value="KR">South Korea</option>
+                </select>
+              </span>
             </label>
             <button class="primary-button" id="convert-button" type="submit">
               Convert
