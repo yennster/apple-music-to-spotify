@@ -24,7 +24,7 @@
   --font-ui:
     "Nunito", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
-  --font-display: "Baloo 2", var(--font-ui);
+  --font-display: "Lobster Two", ui-rounded, var(--font-ui);
   font-family: var(--font-ui);
 }
 
@@ -103,14 +103,32 @@ a {
 }
 
 h1 {
-  max-width: 15ch;
+  max-width: 11ch;
   margin: 0;
   color: var(--ink);
   font-family: var(--font-display);
-  font-size: 3rem;
-  font-weight: 800;
-  line-height: 0.86;
+  font-size: 4.12rem;
+  font-weight: 700;
+  line-height: 0.88;
   letter-spacing: 0;
+  text-shadow:
+    0 3px 0 oklch(0.9 0.052 350 / 0.75),
+    0 14px 30px oklch(0.42 0.1 330 / 0.12);
+}
+
+.bubbly-title {
+  transform-origin: left center;
+}
+
+.title-line {
+  display: block;
+  animation: title-bubble 5.6s var(--fast-out) infinite;
+  will-change: transform;
+}
+
+.title-line:nth-child(2) {
+  animation-delay: 760ms;
+  margin-top: 4px;
 }
 
 .route-chip {
@@ -365,9 +383,8 @@ a:focus-visible {
 
 .track-title {
   color: var(--ink);
-  font-family: var(--font-display);
-  font-size: 1.22rem;
-  font-weight: 800;
+  font-size: 1.12rem;
+  font-weight: 900;
 }
 
 .track-artist {
@@ -465,8 +482,8 @@ a:focus-visible {
   }
 
   h1 {
-    max-width: 12ch;
-    font-size: 2.45rem;
+    max-width: 10ch;
+    font-size: 3.18rem;
   }
 
   .route-chip {
@@ -513,7 +530,27 @@ a:focus-visible {
   *,
   *::before,
   *::after {
+    animation: none !important;
     scroll-behavior: auto !important;
     transition-duration: 1ms !important;
+  }
+}
+
+@keyframes title-bubble {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+
+  18% {
+    transform: translateY(-3px) scale(1.018, 0.988);
+  }
+
+  34% {
+    transform: translateY(1px) scale(0.992, 1.01);
+  }
+
+  48% {
+    transform: translateY(-1px) scale(1.006);
   }
 }
