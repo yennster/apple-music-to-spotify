@@ -21,9 +21,11 @@
   --shadow: 0 24px 60px oklch(0.31 0.05 318 / 0.18);
   --radius: 8px;
   --fast-out: cubic-bezier(0.16, 1, 0.3, 1);
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+  --font-ui:
+    "Nunito", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
+  --font-display: "Baloo 2", var(--font-ui);
+  font-family: var(--font-ui);
 }
 
 * {
@@ -94,8 +96,8 @@ a {
 .eyebrow {
   margin: 0 0 7px;
   color: var(--rose-ink);
-  font-size: 0.76rem;
-  font-weight: 850;
+  font-size: 0.78rem;
+  font-weight: 900;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -104,8 +106,10 @@ h1 {
   max-width: 15ch;
   margin: 0;
   color: var(--ink);
-  font-size: 2.65rem;
-  line-height: 0.94;
+  font-family: var(--font-display);
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 0.86;
   letter-spacing: 0;
 }
 
@@ -120,8 +124,8 @@ h1 {
   border-radius: 999px;
   color: var(--rose-ink);
   background: oklch(0.995 0.01 350 / 0.82);
-  font-size: 0.78rem;
-  font-weight: 820;
+  font-size: 0.82rem;
+  font-weight: 900;
 }
 
 .route-chip span:nth-child(2) {
@@ -143,8 +147,8 @@ h1 {
 label,
 .result-label {
   color: var(--muted);
-  font-size: 0.86rem;
-  font-weight: 780;
+  font-size: 0.9rem;
+  font-weight: 900;
 }
 
 .url-row {
@@ -163,6 +167,7 @@ select {
   border-radius: var(--radius);
   color: var(--ink);
   background: var(--field);
+  font-weight: 800;
   outline: none;
   transition:
     border-color 160ms var(--fast-out),
@@ -252,7 +257,7 @@ a:focus-visible {
 .primary-button,
 .success-button {
   color: oklch(0.996 0.006 350);
-  font-weight: 850;
+  font-weight: 900;
 }
 
 .primary-button {
@@ -289,7 +294,7 @@ a:focus-visible {
   border: 1px solid var(--line-strong);
   color: var(--rose-ink);
   background: var(--field);
-  font-weight: 790;
+  font-weight: 900;
 }
 
 .secondary-button {
@@ -308,7 +313,7 @@ a:focus-visible {
   min-height: 24px;
   margin: 16px 34px 0;
   color: var(--muted);
-  font-weight: 760;
+  font-weight: 800;
 }
 
 .status[data-tone="error"] {
@@ -360,19 +365,20 @@ a:focus-visible {
 
 .track-title {
   color: var(--ink);
-  font-size: 1.12rem;
-  font-weight: 850;
+  font-family: var(--font-display);
+  font-size: 1.22rem;
+  font-weight: 800;
 }
 
 .track-artist {
   color: var(--muted);
-  font-weight: 660;
+  font-weight: 800;
 }
 
 .spotify-url {
   overflow: hidden;
   color: var(--spotify-deep);
-  font-weight: 780;
+  font-weight: 900;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -399,7 +405,7 @@ a:focus-visible {
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 0.84rem;
-  font-weight: 720;
+  font-weight: 800;
   background: var(--panel-soft);
 }
 
@@ -423,7 +429,7 @@ a:focus-visible {
   color: var(--pink-deep);
   background: transparent;
   font-size: 0.84rem;
-  font-weight: 840;
+  font-weight: 900;
 }
 
 .text-button:hover {
@@ -460,7 +466,7 @@ a:focus-visible {
 
   h1 {
     max-width: 12ch;
-    font-size: 2.1rem;
+    font-size: 2.45rem;
   }
 
   .route-chip {
