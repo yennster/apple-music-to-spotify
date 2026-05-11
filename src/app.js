@@ -528,7 +528,7 @@ function updateRouteUi(options = {}) {
     resolvedResultUrl = "";
     currentSpotifyUri = "";
     resultEl.hidden = true;
-    playerPanel.hidden = true;
+    if (playerPanel) playerPanel.hidden = true;
     updateSpotifyPlaybackUi();
   }
 }
@@ -668,14 +668,14 @@ function renderSpotifyPlayback(match) {
   currentSpotifyUri = match.isDirect ? match.spotifyUri || "" : "";
 
   if (!currentSpotifyUri) {
-    playerPanel.hidden = true;
+    if (playerPanel) playerPanel.hidden = true;
     updateSpotifyPlaybackUi();
     return;
   }
 
   const title = match.entity?.title || "this track";
-  playerTitleEl.textContent = `Ready: ${title}`;
-  playerPanel.hidden = false;
+  if (playerTitleEl) playerTitleEl.textContent = `Ready: ${title}`;
+  if (playerPanel) playerPanel.hidden = false;
   updateSpotifyPlaybackUi();
 }
 
@@ -1033,7 +1033,7 @@ async function ensureSpotifyPlayer() {
         const currentTrack = state.track_window?.current_track;
 
         if (currentTrack?.name) {
-          playerTitleEl.textContent = `Now: ${currentTrack.name}`;
+          if (playerTitleEl) playerTitleEl.textContent = `Now: ${currentTrack.name}`;
         }
 
         if (state.paused) {
