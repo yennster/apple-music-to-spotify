@@ -75,13 +75,14 @@ const copyButton = document.querySelector("#copy-button");
 const openButton = document.querySelector("#open-button");
 const bookmarkletLink = document.querySelector("#bookmarklet-link");
 const copyBookmarkletButton = document.querySelector("#copy-bookmarklet-button");
-const playerPanel = document.querySelector("#player-panel");
-const playerTitleEl = document.querySelector("#player-title");
-const playerStatusEl = document.querySelector("#player-status");
-const spotifyConnectButton = document.querySelector("#spotify-connect-button");
-const spotifyPlayButton = document.querySelector("#spotify-play-button");
-const spotifyPauseButton = document.querySelector("#spotify-pause-button");
-const spotifyDisconnectButton = document.querySelector("#spotify-disconnect-button");
+// Spotify playback UI removed
+const playerPanel = null;
+const playerTitleEl = null;
+const playerStatusEl = null;
+const spotifyConnectButton = null;
+const spotifyPlayButton = null;
+const spotifyPauseButton = null;
+const spotifyDisconnectButton = null;
 
 let resolvedResultUrl = "";
 let resolvedNativeUri = "";
@@ -108,10 +109,7 @@ async function init() {
   sourceUrlInput.addEventListener("input", handleSourceUrlInput);
   // direction tabs removed — route is determined automatically from the URL
   openButton.addEventListener("click", handleOpenClick);
-  spotifyConnectButton.addEventListener("click", handleSpotifyConnect);
-  spotifyPlayButton.addEventListener("click", handleSpotifyPlay);
-  spotifyPauseButton.addEventListener("click", handleSpotifyPause);
-  spotifyDisconnectButton.addEventListener("click", handleSpotifyDisconnect);
+  // Spotify playback UI removed; no playback event listeners
 
   await completeSpotifyAuthRedirect();
 
@@ -125,7 +123,6 @@ async function init() {
   }
 
   updateRouteUi();
-  updateSpotifyPlaybackUi();
   randomizeBubbles();
 }
 
@@ -156,7 +153,7 @@ async function handleConvertSubmit(event) {
   setBusy(true);
   setStatus(ROUTE_CONFIG[routeKey].findingStatus);
   resultEl.hidden = true;
-  playerPanel.hidden = true;
+  if (playerPanel) playerPanel.hidden = true;
 
   try {
     const match = await resolveMusicMatch(sourceUrl, country, routeKey);
