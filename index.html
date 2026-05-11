@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       name="description"
-      content="Convert an Apple Music song link into a Spotify song URL."
+      content="Convert Apple Music and Spotify song links between platforms."
     >
-    <title>Apple Music to Spotify</title>
+    <title>Music Link Handoff</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -21,26 +21,37 @@
       <section class="tool" aria-labelledby="app-title">
         <header class="masthead">
           <div>
-            <p class="eyebrow">Fast link handoff</p>
+
             <h1 id="app-title" class="bubbly-title">
-              <span class="title-line">Apple Music</span>
-              <span class="title-line">to Spotify</span>
+              <div class="title-bubbles" aria-hidden="true">
+                <span class="bubble"></span>
+                <span class="bubble"></span>
+                <span class="bubble"></span>
+                <span class="bubble"></span>
+                <span class="bubble"></span>
+                <span class="bubble"></span>
+                <span class="bubble"></span>
+              </div>
+              <span class="title-line" id="title-source">Apple Music</span>
+              <span class="title-line" id="title-target">to Spotify</span>
             </h1>
           </div>
           <div class="route-chip" aria-label="Conversion route">
-            <span>Apple</span>
+            <span id="route-chip-source">Apple</span>
             <span aria-hidden="true">to</span>
-            <span>Spotify</span>
+            <span id="route-chip-target">Spotify</span>
           </div>
         </header>
 
         <form class="converter" id="converter-form">
+
+
           <div class="field">
-            <label for="apple-url">Apple Music URL</label>
+            <label for="source-url" id="source-url-label">Apple Music URL</label>
             <div class="url-row">
               <input
-                id="apple-url"
-                name="apple-url"
+                id="source-url"
+                name="source-url"
                 type="url"
                 inputmode="url"
                 autocomplete="off"
@@ -98,7 +109,7 @@
             <p class="result-label" id="result-title">Spotify URL</p>
             <p class="track-title" id="track-title"></p>
             <p class="track-artist" id="track-artist"></p>
-            <a class="spotify-url" id="spotify-url" href="#" target="_blank" rel="noreferrer"></a>
+            <a class="result-url" id="result-url" href="#" target="_blank" rel="noreferrer"></a>
           </div>
           <div class="result-actions">
             <button class="success-button compact" id="copy-button" type="button">

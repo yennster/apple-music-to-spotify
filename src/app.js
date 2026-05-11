@@ -1,6 +1,38 @@
 const API_BASE = "https://api.song.link/v1-alpha.1/links";
 const PROXY_BASE = "/api/links";
 const DEFAULT_COUNTRY = "US";
+const DEFAULT_ROUTE = "apple-to-spotify";
+
+const ROUTE_CONFIG = {
+  "apple-to-spotify": {
+    sourcePlatform: "appleMusic",
+    targetPlatform: "spotify",
+    sourceName: "Apple Music",
+    sourceShortName: "Apple",
+    targetName: "Spotify",
+    sourceLabel: "Apple Music URL",
+    placeholder: "https://music.apple.com/...",
+    directLabel: "Spotify URL",
+    matchLabel: "Spotify match",
+    searchLabel: "Spotify search",
+    findingStatus: "Finding the Spotify match...",
+    sourceError: "Use a music.apple.com song link.",
+  },
+  "spotify-to-apple": {
+    sourcePlatform: "spotify",
+    targetPlatform: "appleMusic",
+    sourceName: "Spotify",
+    sourceShortName: "Spotify",
+    targetName: "Apple Music",
+    sourceLabel: "Spotify URL",
+    placeholder: "https://open.spotify.com/track/...",
+    directLabel: "Apple Music URL",
+    matchLabel: "Apple Music match",
+    searchLabel: "Apple Music search",
+    findingStatus: "Finding the Apple Music match...",
+    sourceError: "Use an open.spotify.com track link.",
+  },
+};
 
 // Spotify OAuth PKCE apps expose the client ID in the browser. Never put the
 // client secret in frontend code.
@@ -23,7 +55,13 @@ const SPOTIFY_SESSION_STORAGE_KEY = `${STORAGE_PREFIX}spotify-session`;
 const LAST_MATCH_STORAGE_KEY = `${STORAGE_PREFIX}last-match`;
 
 const form = document.querySelector("#converter-form");
-const appleUrlInput = document.querySelector("#apple-url");
+const titleSourceEl = document.querySelector("#title-source");
+const titleTargetEl = document.querySelector("#title-target");
+const routeChipSourceEl = document.querySelector("#route-chip-source");
+const routeChipTargetEl = document.querySelector("#route-chip-target");
+let currentRouteKey = DEFAULT_ROUTE; // will be updated by URL detection
+const sourceUrlLabel = document.querySelector("#source-url-label");
+const sourceUrlInput = document.querySelector("#source-url");
 const countryInput = document.querySelector("#user-country");
 const convertButton = document.querySelector("#convert-button");
 const pasteButton = document.querySelector("#paste-button");
@@ -32,7 +70,7 @@ const resultEl = document.querySelector("#result");
 const artworkEl = document.querySelector("#artwork");
 const trackTitleEl = document.querySelector("#track-title");
 const trackArtistEl = document.querySelector("#track-artist");
-const spotifyUrlEl = document.querySelector("#spotify-url");
+const resultUrlEl = document.querySelector("#result-url");
 const copyButton = document.querySelector("#copy-button");
 const openButton = document.querySelector("#open-button");
 const bookmarkletLink = document.querySelector("#bookmarklet-link");
@@ -45,7 +83,8 @@ const spotifyPlayButton = document.querySelector("#spotify-play-button");
 const spotifyPauseButton = document.querySelector("#spotify-pause-button");
 const spotifyDisconnectButton = document.querySelector("#spotify-disconnect-button");
 
-let resolvedSpotifyUrl = "";
+let resolvedResultUrl = "";
+let resolvedNativeUri = "";
 let resolvedLabel = "Spotify URL";
 let currentSpotifyUri = "";
 let spotifyPlayer = null;
@@ -56,20 +95,19 @@ let spotifyPlaybackBusy = false;
 
 const spotifyApiQueue = createQueuedRateLimiter(700);
 
-const bookmarkletBody =
-  '(async()=>{const h=location.hostname.toLowerCase();if(!h.endsWith("music.apple.com")&&!h.endsWith("itunes.apple.com")){alert("Open an Apple Music song page first.");return;}const e=new URL("https://music.jennyspeelman.dev/api/links");e.searchParams.set("url",location.href);e.searchParams.set("userCountry","US");const r=await fetch(e,{headers:{accept:"application/json"}});if(!r.ok)throw new Error("Songlink returned "+r.status);const d=await r.json();const s=d.linksByPlatform&&d.linksByPlatform.spotify&&d.linksByPlatform.spotify.url;const n=d.entitiesByUniqueId||{};const id=d.entityUniqueId;const a=n[id]||Object.values(n).find(x=>x&&x.type==="song")||{};const q=[a.artistName,a.title].filter(Boolean).join(" ").trim();const u=s||(q&&("https://open.spotify.com/search/"+encodeURIComponent(q)));if(!u){alert("No Spotify match found.");return;}try{await navigator.clipboard.writeText(u);alert("Copied "+(s?"Spotify URL":"Spotify search")+":\\n"+u);}catch(t){prompt(s?"Spotify URL":"Spotify search",u);}})().catch(e=>alert("Apple Music to Spotify failed: "+(e&&e.message?e.message:e)))';
-const bookmarkletUrl = `javascript:${bookmarkletBody}`;
+let bookmarkletUrl = "";
 
 init();
 
 async function init() {
-  bookmarkletLink.href = bookmarkletUrl;
-
   form.addEventListener("submit", handleConvertSubmit);
   pasteButton.addEventListener("click", handlePaste);
   copyButton.addEventListener("click", handleCopyResult);
   copyBookmarkletButton.addEventListener("click", handleCopyBookmarklet);
-  appleUrlInput.addEventListener("paste", handleAppleUrlPaste);
+  sourceUrlInput.addEventListener("paste", handleSourceUrlPaste);
+  sourceUrlInput.addEventListener("input", handleSourceUrlInput);
+  // direction tabs removed — route is determined automatically from the URL
+  openButton.addEventListener("click", handleOpenClick);
   spotifyConnectButton.addEventListener("click", handleSpotifyConnect);
   spotifyPlayButton.addEventListener("click", handleSpotifyPlay);
   spotifyPauseButton.addEventListener("click", handleSpotifyPause);
@@ -80,23 +118,34 @@ async function init() {
   const incomingUrl = new URLSearchParams(window.location.search).get("url");
 
   if (incomingUrl) {
-    appleUrlInput.value = incomingUrl;
+    sourceUrlInput.value = incomingUrl;
     window.setTimeout(() => form.requestSubmit(), 0);
   } else {
     restoreLastMatch();
   }
 
+  updateRouteUi();
   updateSpotifyPlaybackUi();
+  randomizeBubbles();
 }
 
 async function handleConvertSubmit(event) {
   event.preventDefault();
 
-  let appleUrl;
+  let sourceUrl;
   let country;
+  let routeKey = getCurrentRouteKey();
 
   try {
-    appleUrl = normalizeAppleMusicUrl(appleUrlInput.value);
+    const detectedRoute = detectRouteForUrl(sourceUrlInput.value);
+    console.debug("handleConvertSubmit detectRouteForUrl ->", sourceUrlInput.value, detectedRoute);
+
+    if (detectedRoute && detectedRoute !== routeKey) {
+      setCurrentRoute(detectedRoute);
+      routeKey = detectedRoute;
+    }
+
+    sourceUrl = normalizeSourceUrl(sourceUrlInput.value, routeKey);
     country = normalizeCountry(countryInput.value);
     countryInput.value = country;
   } catch (error) {
@@ -105,16 +154,16 @@ async function handleConvertSubmit(event) {
   }
 
   setBusy(true);
-  setStatus("Finding the Spotify match...");
+  setStatus(ROUTE_CONFIG[routeKey].findingStatus);
   resultEl.hidden = true;
   playerPanel.hidden = true;
 
   try {
-    const match = await resolveSpotifyMatch(appleUrl, country);
+    const match = await resolveMusicMatch(sourceUrl, country, routeKey);
     renderResult(match);
 
     try {
-      await copyText(match.spotifyUrl);
+      await copyText(match.resultUrl);
       setStatus(`${resolvedLabel} copied.`, "success");
     } catch (copyError) {
       setStatus(`${resolvedLabel} ready. Press Copy to save it.`);
@@ -129,18 +178,19 @@ async function handleConvertSubmit(event) {
 async function handlePaste() {
   try {
     const text = await navigator.clipboard.readText();
-    appleUrlInput.value = text.trim();
-    appleUrlInput.focus();
+    sourceUrlInput.value = text.trim();
+    maybeSwitchRouteForUrl(sourceUrlInput.value);
+    sourceUrlInput.focus();
   } catch (error) {
     showError("Clipboard access is blocked in this browser.");
   }
 }
 
 async function handleCopyResult() {
-  if (!resolvedSpotifyUrl) return;
+  if (!resolvedResultUrl) return;
 
   try {
-    await copyText(resolvedSpotifyUrl);
+    await copyText(resolvedResultUrl);
     setStatus(`${resolvedLabel} copied.`, "success");
   } catch (error) {
     showError("Copy failed. Select the link and copy it manually.");
@@ -156,12 +206,66 @@ async function handleCopyBookmarklet() {
   }
 }
 
-function handleAppleUrlPaste() {
+function handleRouteChange() {
+  updateRouteUi({ clearStatus: true, hideResult: true });
+}
+
+function handleSourceUrlPaste() {
   window.setTimeout(() => {
-    if (looksLikeAppleMusicUrl(appleUrlInput.value)) {
+    const routeKey = maybeSwitchRouteForUrl(sourceUrlInput.value);
+
+    if (routeKey) {
       form.requestSubmit();
     }
   }, 0);
+}
+
+let detectUrlDebounceTimer = 0;
+function handleSourceUrlInput() {
+  clearTimeout(detectUrlDebounceTimer);
+  detectUrlDebounceTimer = window.setTimeout(() => {
+    const val = sourceUrlInput.value;
+    const detected = detectRouteForUrl(val);
+    console.debug("detectRouteForUrl ->", val, detected);
+
+    if (detected && detected !== getCurrentRouteKey()) {
+      setCurrentRoute(detected);
+      setStatus(`${ROUTE_CONFIG[detected].sourceName} detected`, "success");
+      // clear status after a short delay so users see feedback
+      window.setTimeout(() => setStatus(""), 1400);
+    }
+  }, 350);
+}
+
+// Randomize bubble positions, sizes and animation timings for a playful effect
+function randomizeBubbles() {
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const container = document.querySelector('.title-bubbles');
+    if (!container) return;
+    const bubbles = Array.from(container.querySelectorAll('.bubble'));
+
+    bubbles.forEach((b, i) => {
+      // spread left 2%..94%
+      const left = 2 + Math.random() * 92;
+      // size 18..64px
+      const size = Math.round(18 + Math.random() * 46);
+      // small staggered delay
+      const delay = (Math.random() * 2).toFixed(2) + 's';
+      // variable durations
+      const rise = (3.6 + Math.random() * 3.2).toFixed(2) + 's';
+      const wobble = (3.8 + Math.random() * 3.6).toFixed(2) + 's';
+      b.style.left = left + '%';
+      b.style.width = size + 'px';
+      b.style.height = size + 'px';
+      b.style.animation = `bubble-rise ${rise} var(--fast-out) ${delay} infinite, bubble-wobble ${wobble} ease-in-out ${delay} infinite`;
+      b.style.opacity = (0.85 + Math.random() * 0.15).toFixed(2);
+      b.style.bottom = `${6 + Math.round(Math.random() * 18)}px`;
+      b.style.transform = `translateZ(0)`;
+    });
+  } catch (e) {
+    console.debug('randomizeBubbles failed', e);
+  }
 }
 
 async function handleSpotifyConnect() {
@@ -246,11 +350,40 @@ function handleSpotifyDisconnect() {
   updateSpotifyPlaybackUi();
 }
 
-function normalizeAppleMusicUrl(value) {
+function handleOpenClick(event) {
+  // Try native app URI first, then fall back to the web URL
+  event.preventDefault();
+
+  const nativeUri = resolvedNativeUri;
+  const webUrl = resolvedResultUrl || openButton.href;
+
+  if (nativeUri) {
+    // attempt to open native URI via an iframe to avoid leaving the page immediately
+    const iframe = document.createElement("iframe");
+    iframe.style.display = "none";
+    iframe.src = nativeUri;
+    document.body.appendChild(iframe);
+
+    // fallback to web URL after short delay
+    window.setTimeout(() => {
+      // clean up iframe
+      try {
+        document.body.removeChild(iframe);
+      } catch (e) {}
+      window.open(webUrl, "_blank");
+    }, 700);
+  } else {
+    // no native URI available — open web URL directly
+    window.open(webUrl, "_blank");
+  }
+}
+
+function normalizeSourceUrl(value, routeKey) {
+  const config = ROUTE_CONFIG[routeKey] || ROUTE_CONFIG[DEFAULT_ROUTE];
   const trimmed = value.trim();
 
   if (!trimmed) {
-    throw new Error("Enter an Apple Music URL.");
+    throw new Error(`Enter a ${config.sourceLabel}.`);
   }
 
   let parsed;
@@ -261,11 +394,15 @@ function normalizeAppleMusicUrl(value) {
     throw new Error("That URL is not valid.");
   }
 
-  if (!looksLikeAppleMusicUrl(parsed.href)) {
-    throw new Error("Use a music.apple.com song link.");
+  if (!looksLikePlatformUrl(parsed.href, config.sourcePlatform)) {
+    throw new Error(config.sourceError);
   }
 
   return parsed.href;
+}
+
+function looksLikePlatformUrl(value, platform) {
+  return platform === "spotify" ? looksLikeSpotifyUrl(value) : looksLikeAppleMusicUrl(value);
 }
 
 function looksLikeAppleMusicUrl(value) {
@@ -275,6 +412,127 @@ function looksLikeAppleMusicUrl(value) {
     return hostname.endsWith("music.apple.com") || hostname.endsWith("itunes.apple.com");
   } catch (error) {
     return false;
+  }
+}
+
+function looksLikeSpotifyUrl(value) {
+  try {
+    const trimmed = String(value || "").trim();
+
+    // spotify URI form: spotify:track:ID
+    if (/^spotify:track:[A-Za-z0-9]+$/i.test(trimmed)) return true;
+
+    const parsed = new URL(trimmed);
+    const hostname = parsed.hostname.toLowerCase();
+    const pathParts = parsed.pathname.split("/").filter(Boolean);
+
+    const knownHosts = [
+      "open.spotify.com",
+      "play.spotify.com",
+      "spotify.link",
+      "spoti.fi",
+    ];
+
+    if (knownHosts.includes(hostname) || hostname.endsWith(".spotify.link") || hostname.includes("spotify")) {
+      // If it's a Spotify host and the path contains a track id, accept it.
+      if (pathParts.includes("track") || /\btrack\b/.test(parsed.pathname)) return true;
+      // short links sometimes redirect; accept known short hostnames as Spotify.
+      if (hostname === "spoti.fi" || hostname === "spotify.link") return true;
+    }
+
+    return false;
+  } catch (error) {
+    return false;
+  }
+}
+
+function detectRouteForUrl(value) {
+  const v = String(value || "").trim();
+
+  if (!v) return "";
+
+  // quick substring checks (catch share links and non-URL forms)
+  const lower = v.toLowerCase();
+
+  if (lower.includes("music.apple.com") || lower.includes("itunes.apple.com") || lower.includes("applemusic")) {
+    return "apple-to-spotify";
+  }
+
+  if (
+    lower.includes("open.spotify.com") ||
+    lower.includes("spotify.link") ||
+    lower.includes("spoti.fi") ||
+    lower.startsWith("spotify:") ||
+    lower.includes("spotify")
+  ) {
+    return "spotify-to-apple";
+  }
+
+  // try parsing as URL and falling back to the more precise checks
+  try {
+    const parsed = new URL(v);
+    const hostname = parsed.hostname.toLowerCase();
+
+    if (hostname.includes("music.apple.com") || hostname.includes("itunes.apple.com")) {
+      return "apple-to-spotify";
+    }
+
+    if (
+      hostname.includes("spotify") ||
+      hostname === "spoti.fi" ||
+      hostname.endsWith(".spotify.link")
+    ) {
+      return "spotify-to-apple";
+    }
+  } catch (e) {
+    // ignore parse errors
+  }
+
+  return "";
+}
+
+function maybeSwitchRouteForUrl(value) {
+  const detectedRoute = detectRouteForUrl(value);
+
+  if (detectedRoute && detectedRoute !== getCurrentRouteKey()) {
+    setCurrentRoute(detectedRoute);
+  }
+
+  return detectedRoute;
+}
+
+function getCurrentRouteKey() {
+  return currentRouteKey || DEFAULT_ROUTE;
+}
+
+function setCurrentRoute(routeKey) {
+  currentRouteKey = ROUTE_CONFIG[routeKey] ? routeKey : DEFAULT_ROUTE;
+  updateRouteUi({ hideResult: true });
+}
+
+function updateRouteUi(options = {}) {
+  const routeKey = getCurrentRouteKey();
+  const config = ROUTE_CONFIG[routeKey];
+
+  titleSourceEl.textContent = config.sourceName;
+  titleTargetEl.textContent = `to ${config.targetName}`;
+  routeChipSourceEl.textContent = config.sourceShortName;
+  routeChipTargetEl.textContent = config.targetName.replace(" Music", "");
+  sourceUrlLabel.textContent = config.sourceLabel;
+  sourceUrlInput.placeholder = config.placeholder;
+  bookmarkletUrl = buildBookmarkletUrl(routeKey);
+  bookmarkletLink.href = bookmarkletUrl;
+
+  if (options.clearStatus) {
+    setStatus("");
+  }
+
+  if (options.hideResult) {
+    resolvedResultUrl = "";
+    currentSpotifyUri = "";
+    resultEl.hidden = true;
+    playerPanel.hidden = true;
+    updateSpotifyPlaybackUi();
   }
 }
 
@@ -288,10 +546,12 @@ function normalizeCountry(value) {
   return normalized;
 }
 
-async function resolveSpotifyMatch(appleUrl, country) {
+async function resolveMusicMatch(sourceUrl, country, routeKey) {
+  const config = ROUTE_CONFIG[routeKey];
   const endpoint = getLinksEndpoint();
-  endpoint.searchParams.set("url", appleUrl);
+  endpoint.searchParams.set("url", sourceUrl);
   endpoint.searchParams.set("userCountry", country);
+  endpoint.searchParams.set("direction", routeKey);
 
   const response = await fetch(endpoint, {
     headers: {
@@ -306,19 +566,34 @@ async function resolveSpotifyMatch(appleUrl, country) {
   }
 
   const payload = await response.json();
-  const entity = pickEntity(payload);
-  const spotifyLink = payload.linksByPlatform?.spotify;
-  const spotifyUrl = spotifyLink?.url;
-  const spotifyUri = spotifyLink?.nativeAppUriDesktop || spotifyUrlToTrackUri(spotifyUrl);
-  const fallbackUrl = spotifyUrl ? "" : buildSpotifySearchUrl(entity);
+  const entity = pickEntity(payload, config.targetPlatform);
+  const sourceEntity = pickEntity(payload, config.sourcePlatform);
+  const targetLink = payload.linksByPlatform?.[config.targetPlatform];
+  const sourceSpotifyLink = payload.linksByPlatform?.spotify;
+  const resultUrl = targetLink?.url;
+  const fallbackUrl = resultUrl
+    ? ""
+    : buildFallbackSearchUrl(entity, config.targetPlatform, country);
+  const spotifyUri =
+    config.targetPlatform === "spotify"
+      ? targetLink?.nativeAppUriDesktop || spotifyUrlToTrackUri(resultUrl)
+      : sourceSpotifyLink?.nativeAppUriDesktop || spotifyUrlToTrackUri(sourceUrl);
+
+  // try to find a native app uri for the target platform (if Songlink provides it)
+  const nativeAppUri = targetLink?.nativeAppUriDesktop || (config.targetPlatform === "spotify" ? spotifyUri : "");
+  const targetMatch = payload.spotifyMatch || payload.appleMusicMatch || {};
 
   return {
-    spotifyUrl: spotifyUrl || fallbackUrl,
+    routeKey,
+    resultUrl: resultUrl || fallbackUrl,
     spotifyUri,
-    isDirect: Boolean(spotifyUrl),
-    source: payload.spotifyMatch?.source || (spotifyUrl ? "songlink" : "search-fallback"),
+    nativeAppUri,
+    isDirect: Boolean(resultUrl),
+    source: targetMatch.source || (resultUrl ? "songlink" : "search-fallback"),
     pageUrl: payload.pageUrl,
-    entity,
+    targetPlatform: config.targetPlatform,
+    sourcePlatform: config.sourcePlatform,
+    entity: Object.keys(entity).length ? entity : sourceEntity,
   };
 }
 
@@ -335,13 +610,13 @@ function shouldUseProxy() {
   return hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "";
 }
 
-function pickEntity(payload) {
+function pickEntity(payload, platform) {
   const entities = payload.entitiesByUniqueId ?? {};
-  const spotifyEntityId = payload.linksByPlatform?.spotify?.entityUniqueId;
+  const platformEntityId = payload.linksByPlatform?.[platform]?.entityUniqueId;
   const sourceEntityId = payload.entityUniqueId;
 
   return (
-    entities[spotifyEntityId] ??
+    entities[platformEntityId] ??
     entities[sourceEntityId] ??
     Object.values(entities).find((entity) => entity?.type === "song") ??
     {}
@@ -349,23 +624,27 @@ function pickEntity(payload) {
 }
 
 function renderResult(match, options = {}) {
-  const { entity, spotifyUrl, spotifyUri, isDirect, source } = match;
-  resolvedSpotifyUrl = spotifyUrl;
+  const config = ROUTE_CONFIG[match.routeKey] || ROUTE_CONFIG[DEFAULT_ROUTE];
+  const { entity, resultUrl, spotifyUri, nativeAppUri, isDirect, source, targetPlatform } = match;
+  resolvedResultUrl = resultUrl;
+  resolvedNativeUri = nativeAppUri || "";
   resolvedLabel = isDirect
-    ? source === "spotify-search"
-      ? "Spotify match"
-      : "Spotify URL"
-    : "Spotify search";
+    ? source === "spotify-search" || source === "itunes-search"
+      ? config.matchLabel
+      : config.directLabel
+    : config.searchLabel;
 
-  const title = entity.title || "Spotify match";
+  const title = entity.title || `${config.targetName} match`;
   const artist = entity.artistName || "Artist unavailable";
 
   trackTitleEl.textContent = title;
   trackArtistEl.textContent = artist;
   document.querySelector("#result-title").textContent = resolvedLabel;
-  spotifyUrlEl.href = spotifyUrl;
-  spotifyUrlEl.textContent = spotifyUrl;
-  openButton.href = spotifyUrl;
+  resultUrlEl.href = resultUrl;
+  resultUrlEl.textContent = resultUrl;
+  // openButton href remains the web fallback; click handler will try native app first
+  openButton.href = resultUrl;
+  resultEl.dataset.target = targetPlatform;
 
   if (entity.thumbnailUrl) {
     artworkEl.src = entity.thumbnailUrl;
@@ -380,7 +659,7 @@ function renderResult(match, options = {}) {
   resultEl.hidden = false;
   renderSpotifyPlayback({
     ...match,
-    spotifyUri: spotifyUri || spotifyUrlToTrackUri(spotifyUrl),
+    spotifyUri: spotifyUri || spotifyUrlToTrackUri(resultUrl),
   });
 
   if (options.persist !== false) {
@@ -408,11 +687,14 @@ function saveLastMatch(match) {
     sessionStorage.setItem(
       LAST_MATCH_STORAGE_KEY,
       JSON.stringify({
-        spotifyUrl: match.spotifyUrl,
+        routeKey: match.routeKey,
+        resultUrl: match.resultUrl,
         spotifyUri: match.spotifyUri,
         isDirect: match.isDirect,
         source: match.source,
         pageUrl: match.pageUrl,
+        targetPlatform: match.targetPlatform,
+        sourcePlatform: match.sourcePlatform,
         entity: {
           title: match.entity?.title || "",
           artistName: match.entity?.artistName || "",
@@ -435,8 +717,12 @@ function restoreLastMatch() {
 
     const match = JSON.parse(serialized);
 
-    if (!match?.spotifyUrl) {
+    if (!match?.resultUrl) {
       return false;
+    }
+
+    if (match.routeKey) {
+      setCurrentRoute(match.routeKey);
     }
 
     renderResult(match, { persist: false });
@@ -447,17 +733,62 @@ function restoreLastMatch() {
   }
 }
 
-function buildSpotifySearchUrl(entity) {
+function buildFallbackSearchUrl(entity, targetPlatform, country = DEFAULT_COUNTRY) {
   const query = [entity.artistName, entity.title]
     .filter(Boolean)
     .join(" ")
     .trim();
 
   if (!query) {
-    throw new Error("Songlink could not find enough track data for Spotify.");
+    throw new Error("Songlink could not find enough track data for a search fallback.");
+  }
+
+  if (targetPlatform === "appleMusic") {
+    return `https://music.apple.com/${country.toLowerCase()}/search?term=${encodeURIComponent(query)}`;
   }
 
   return `https://open.spotify.com/search/${encodeURIComponent(query)}`;
+}
+
+function buildBookmarkletUrl(routeKey) {
+  const config = ROUTE_CONFIG[routeKey] || ROUTE_CONFIG[DEFAULT_ROUTE];
+  const sourceHosts =
+    config.sourcePlatform === "spotify"
+      ? ["open.spotify.com", "spotify.link"]
+      : ["music.apple.com", "itunes.apple.com"];
+  const targetPlatform = config.targetPlatform;
+  const directLabel = config.directLabel;
+  const searchLabel = config.searchLabel;
+  const failureMessage = `Open a ${config.sourceName} song page first.`;
+  const searchPrefix =
+    targetPlatform === "spotify"
+      ? "https://open.spotify.com/search/"
+      : "https://music.apple.com/search?term=";
+  const hostCheck = `const ok=${JSON.stringify(
+    sourceHosts,
+  )}.some(x=>h===x||h.endsWith("."+x));`;
+  const body =
+    `(async()=>{const h=location.hostname.toLowerCase();${hostCheck}` +
+    `if(!ok){alert(${JSON.stringify(failureMessage)});return;}` +
+    'const e=new URL("https://music.jennyspeelman.dev/api/links");' +
+    'e.searchParams.set("url",location.href);e.searchParams.set("userCountry","US");' +
+    'const r=await fetch(e,{headers:{accept:"application/json"}});' +
+    'if(!r.ok)throw new Error("Songlink returned "+r.status);' +
+    `const d=await r.json();const l=d.linksByPlatform&&d.linksByPlatform[${JSON.stringify(
+      targetPlatform,
+    )}]&&d.linksByPlatform[${JSON.stringify(targetPlatform)}].url;` +
+    'const n=d.entitiesByUniqueId||{};const id=d.entityUniqueId;' +
+    'const a=n[id]||Object.values(n).find(x=>x&&x.type==="song")||{};' +
+    'const q=[a.artistName,a.title].filter(Boolean).join(" ").trim();' +
+    `const u=l||(q&&(${JSON.stringify(searchPrefix)}+encodeURIComponent(q)));` +
+    `if(!u){alert("No ${config.targetName} match found.");return;}` +
+    `try{await navigator.clipboard.writeText(u);alert("Copied "+(l?${JSON.stringify(
+      directLabel,
+    )}:${JSON.stringify(searchLabel)})+":\\n"+u);}` +
+    `catch(t){prompt(l?${JSON.stringify(directLabel)}:${JSON.stringify(searchLabel)},u);}})()` +
+    '.catch(e=>alert("Music link handoff failed: "+(e&&e.message?e.message:e)))';
+
+  return `javascript:${body}`;
 }
 
 function spotifyUrlToTrackUri(value) {

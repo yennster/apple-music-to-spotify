@@ -1,14 +1,19 @@
 const SONGLINK_ENDPOINT = "https://api.song.link/v1-alpha.1/links";
 const ITUNES_LOOKUP_ENDPOINT = "https://itunes.apple.com/lookup";
+const ITUNES_SEARCH_ENDPOINT = "https://itunes.apple.com/search";
 const SPOTIFY_TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
 const SPOTIFY_SEARCH_ENDPOINT = "https://api.spotify.com/v1/search";
+const SPOTIFY_TRACK_ENDPOINT = "https://api.spotify.com/v1/tracks";
 const DEFAULT_COUNTRY = "US";
 const MIN_SPOTIFY_SCORE = 0.78;
+const MIN_APPLE_MUSIC_SCORE = 0.78;
 const CLIENT_WINDOW_MS = 60000;
 const CLIENT_MAX_REQUESTS = 20;
 const SPOTIFY_REQUEST_INTERVAL_MS = 700;
 const SPOTIFY_SEARCH_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const SPOTIFY_SEARCH_CACHE_MAX = 200;
+const APPLE_MUSIC_SEARCH_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const APPLE_MUSIC_SEARCH_CACHE_MAX = 200;
 
 let spotifyTokenCache = {
   accessToken: "",
@@ -17,6 +22,7 @@ let spotifyTokenCache = {
 
 const clientRateLimitStore = new Map();
 const spotifySearchCache = new Map();
+const appleMusicSearchCache = new Map();
 let spotifyRequestQueue = Promise.resolve();
 let nextSpotifyRequestAt = 0;
 
@@ -43,16 +49,16 @@ module.exports = async function handler(request, response) {
     return;
   }
 
-  const appleUrl = normalizeAppleMusicUrl(request.query.url);
+  const source = normalizeMusicUrl(request.query.url);
   const userCountry = normalizeCountry(request.query.userCountry);
 
-  if (!appleUrl) {
-    response.status(400).json({ error: "Use a music.apple.com song link." });
+  if (!source.url) {
+    response.status(400).json({ error: "Use a music.apple.com or open.spotify.com song link." });
     return;
   }
 
   try {
-    const songlinkResponse = await fetchSonglinkPayload(appleUrl, userCountry);
+    const songlinkResponse = await fetchSonglinkPayload(source.url, userCountry);
     const payload = songlinkResponse.payload;
 
     if (!songlinkResponse.ok) {
@@ -60,9 +66,12 @@ module.exports = async function handler(request, response) {
       return;
     }
 
-    if (!payload.linksByPlatform?.spotify?.url) {
+    payload.sourcePlatform = source.platform;
+    payload.targetPlatform = source.platform === "spotify" ? "appleMusic" : "spotify";
+
+    if (source.platform === "appleMusic" && !payload.linksByPlatform?.spotify?.url) {
       try {
-        await attachSpotifySearchMatch(payload, appleUrl, userCountry);
+        await attachSpotifySearchMatch(payload, source.url, userCountry);
       } catch (spotifyError) {
         payload.spotifyMatch = {
           source: "search-fallback",
@@ -73,6 +82,17 @@ module.exports = async function handler(request, response) {
           payload.spotifyMatch.retryAfterSeconds = spotifyError.retryAfterSeconds;
           response.setHeader("Retry-After", String(spotifyError.retryAfterSeconds));
         }
+      }
+    }
+
+    if (source.platform === "spotify" && !payload.linksByPlatform?.appleMusic?.url) {
+      try {
+        await attachAppleMusicSearchMatch(payload, source.url, userCountry);
+      } catch (appleMusicError) {
+        payload.appleMusicMatch = {
+          source: "search-fallback",
+          reason: appleMusicError.publicReason || "apple_music_lookup_failed",
+        };
       }
     }
 
@@ -156,6 +176,62 @@ async function attachSpotifySearchMatch(payload, appleUrl, userCountry) {
   };
   payload.spotifyMatch = {
     source: "spotify-search",
+    confidence: Number(match.score.toFixed(3)),
+    query: match.query,
+  };
+}
+
+async function attachAppleMusicSearchMatch(payload, spotifyUrl, userCountry) {
+  const sourceEntity = pickSourceEntity(payload);
+  const spotifyMetadata =
+    sourceEntity.title && sourceEntity.artistName
+      ? {}
+      : await getSpotifyTrackMetadata(spotifyUrl, userCountry);
+  const target = {
+    title: spotifyMetadata.name || sourceEntity.title || "",
+    artistName:
+      spotifyMetadata.artists?.map((artist) => artist.name).join(", ") ||
+      sourceEntity.artistName ||
+      "",
+    albumName: spotifyMetadata.album?.name || "",
+    durationMs: spotifyMetadata.duration_ms || null,
+    thumbnailUrl: spotifyMetadata.album?.images?.[0]?.url || sourceEntity.thumbnailUrl || "",
+  };
+
+  payload.spotifyMetadata = target;
+
+  if (!target.title || !target.artistName) {
+    payload.appleMusicMatch = {
+      source: "search-fallback",
+      reason: "missing_track_metadata",
+    };
+    return;
+  }
+
+  const candidates = await searchAppleMusicTracks(target, userCountry);
+  const match = findBestAppleMusicTrack(candidates, target);
+
+  if (!match || match.score < MIN_APPLE_MUSIC_SCORE) {
+    payload.appleMusicMatch = {
+      source: "search-fallback",
+      reason: "no_confident_apple_music_match",
+      bestScore: match?.score ?? 0,
+    };
+    return;
+  }
+
+  const entityUniqueId = `APPLE_MUSIC_SONG::${match.track.trackId}`;
+  payload.entitiesByUniqueId = payload.entitiesByUniqueId || {};
+  payload.linksByPlatform = payload.linksByPlatform || {};
+  payload.entitiesByUniqueId[entityUniqueId] = appleTrackToEntity(match.track);
+  payload.linksByPlatform.appleMusic = {
+    country: userCountry,
+    url: match.track.trackViewUrl,
+    nativeAppUriDesktop: match.track.trackViewUrl,
+    entityUniqueId,
+  };
+  payload.appleMusicMatch = {
+    source: "itunes-search",
     confidence: Number(match.score.toFixed(3)),
     query: match.query,
   };
@@ -279,6 +355,90 @@ async function searchSpotifyTracks(token, target, userCountry) {
   return tracks;
 }
 
+async function getSpotifyTrackMetadata(spotifyUrl, userCountry) {
+  const credentials = getSpotifyCredentials();
+  const trackId = extractSpotifyTrackId(spotifyUrl);
+
+  if (!credentials || !trackId) {
+    return {};
+  }
+
+  try {
+    const token = await getSpotifyAccessToken(credentials);
+    const endpoint = new URL(`${SPOTIFY_TRACK_ENDPOINT}/${trackId}`);
+    endpoint.searchParams.set("market", userCountry);
+
+    const response = await throttledSpotifyFetch(endpoint, {
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (response.status === 429) {
+      throw spotifyRateLimitError(response);
+    }
+
+    if (!response.ok) {
+      return {};
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error.publicReason === "spotify_rate_limited") {
+      throw error;
+    }
+
+    return {};
+  }
+}
+
+async function searchAppleMusicTracks(target, userCountry) {
+  const cacheKey = getAppleMusicSearchCacheKey(target, userCountry);
+  const cachedTracks = readAppleMusicSearchCache(cacheKey);
+
+  if (cachedTracks) {
+    return cachedTracks;
+  }
+
+  const queries = buildAppleMusicQueries(target);
+  const seen = new Set();
+  const tracks = [];
+
+  for (const query of queries) {
+    const endpoint = new URL(ITUNES_SEARCH_ENDPOINT);
+    endpoint.searchParams.set("term", query);
+    endpoint.searchParams.set("country", userCountry);
+    endpoint.searchParams.set("media", "music");
+    endpoint.searchParams.set("entity", "song");
+    endpoint.searchParams.set("limit", "12");
+
+    const response = await fetch(endpoint, {
+      headers: {
+        accept: "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      continue;
+    }
+
+    const payload = await response.json();
+
+    for (const track of payload.results || []) {
+      if (!track?.trackId || seen.has(track.trackId)) {
+        continue;
+      }
+
+      seen.add(track.trackId);
+      tracks.push({ track, query });
+    }
+  }
+
+  writeAppleMusicSearchCache(cacheKey, tracks);
+  return tracks;
+}
+
 function buildSpotifyQueries(target) {
   const title = cleanQueryPart(target.title);
   const artist = cleanQueryPart(target.artistName);
@@ -292,11 +452,32 @@ function buildSpotifyQueries(target) {
   ].filter(Boolean);
 }
 
+function buildAppleMusicQueries(target) {
+  const title = cleanQueryPart(target.title);
+  const artist = cleanQueryPart(target.artistName);
+  const album = cleanQueryPart(target.albumName);
+
+  return [
+    `${artist} ${title}`,
+    album ? `${artist} ${title} ${album}` : "",
+    title,
+  ].filter(Boolean);
+}
+
 function findBestSpotifyTrack(candidates, target) {
   return candidates
     .map((candidate) => ({
       ...candidate,
       score: scoreSpotifyTrack(candidate.track, target),
+    }))
+    .sort((left, right) => right.score - left.score)[0];
+}
+
+function findBestAppleMusicTrack(candidates, target) {
+  return candidates
+    .map((candidate) => ({
+      ...candidate,
+      score: scoreAppleMusicTrack(candidate.track, target),
     }))
     .sort((left, right) => right.score - left.score)[0];
 }
@@ -315,6 +496,26 @@ function scoreSpotifyTrack(track, target) {
     ? scoreDuration(track.duration_ms, target.durationMs)
     : 0.65;
   const versionPenalty = getVersionPenalty(track.name, target.title);
+
+  return (
+    titleScore * 0.44 +
+    artistScore * 0.34 +
+    albumScore * 0.1 +
+    durationScore * 0.12 -
+    versionPenalty
+  );
+}
+
+function scoreAppleMusicTrack(track, target) {
+  const titleScore = stringSimilarity(track.trackName, target.title);
+  const artistScore = stringSimilarity(track.artistName, target.artistName);
+  const albumScore = target.albumName
+    ? stringSimilarity(track.collectionName || "", target.albumName)
+    : 0.65;
+  const durationScore = target.durationMs
+    ? scoreDuration(track.trackTimeMillis, target.durationMs)
+    : 0.65;
+  const versionPenalty = getVersionPenalty(track.trackName, target.title);
 
   return (
     titleScore * 0.44 +
@@ -394,6 +595,22 @@ function spotifyTrackToEntity(track) {
   };
 }
 
+function appleTrackToEntity(track) {
+  const artworkUrl = String(track.artworkUrl100 || "").replace("100x100bb", "512x512bb");
+
+  return {
+    id: String(track.trackId),
+    type: "song",
+    title: track.trackName,
+    artistName: track.artistName,
+    thumbnailUrl: artworkUrl || track.artworkUrl100,
+    thumbnailWidth: artworkUrl ? 512 : 100,
+    thumbnailHeight: artworkUrl ? 512 : 100,
+    apiProvider: "itunes",
+    platforms: ["appleMusic"],
+  };
+}
+
 function checkClientRateLimit(key) {
   const now = Date.now();
   const existing = clientRateLimitStore.get(key);
@@ -457,6 +674,16 @@ function getSpotifySearchCacheKey(target, userCountry) {
   ].join("|");
 }
 
+function getAppleMusicSearchCacheKey(target, userCountry) {
+  return [
+    userCountry,
+    normalizeText(target.artistName),
+    normalizeText(target.title),
+    normalizeText(target.albumName),
+    target.durationMs || "",
+  ].join("|");
+}
+
 function readSpotifySearchCache(key) {
   const entry = spotifySearchCache.get(key);
 
@@ -486,6 +713,38 @@ function writeSpotifySearchCache(key, tracks) {
 
   if (oldestKey) {
     spotifySearchCache.delete(oldestKey);
+  }
+}
+
+function readAppleMusicSearchCache(key) {
+  const entry = appleMusicSearchCache.get(key);
+
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.expiresAt <= Date.now()) {
+    appleMusicSearchCache.delete(key);
+    return null;
+  }
+
+  return entry.tracks;
+}
+
+function writeAppleMusicSearchCache(key, tracks) {
+  appleMusicSearchCache.set(key, {
+    expiresAt: Date.now() + APPLE_MUSIC_SEARCH_CACHE_TTL_MS,
+    tracks,
+  });
+
+  if (appleMusicSearchCache.size <= APPLE_MUSIC_SEARCH_CACHE_MAX) {
+    return;
+  }
+
+  const oldestKey = appleMusicSearchCache.keys().next().value;
+
+  if (oldestKey) {
+    appleMusicSearchCache.delete(oldestKey);
   }
 }
 
@@ -560,23 +819,44 @@ function pickSourceEntity(payload) {
   return entities[payload.entityUniqueId] || Object.values(entities)[0] || {};
 }
 
-function normalizeAppleMusicUrl(value) {
+function normalizeMusicUrl(value) {
   if (typeof value !== "string") {
-    return "";
+    return { url: "", platform: "" };
   }
 
   try {
     const parsed = new URL(value.trim());
     const hostname = parsed.hostname.toLowerCase();
+    const pathParts = parsed.pathname.split("/").filter(Boolean);
 
     if (
-      !hostname.endsWith("music.apple.com") &&
-      !hostname.endsWith("itunes.apple.com")
+      hostname.endsWith("music.apple.com") ||
+      hostname.endsWith("itunes.apple.com")
     ) {
-      return "";
+      return { url: parsed.href, platform: "appleMusic" };
     }
 
-    return parsed.href;
+    if (
+      (hostname === "open.spotify.com" && pathParts.includes("track")) ||
+      hostname === "spotify.link" ||
+      hostname.endsWith(".spotify.link")
+    ) {
+      return { url: parsed.href, platform: "spotify" };
+    }
+
+    return { url: "", platform: "" };
+  } catch (error) {
+    return { url: "", platform: "" };
+  }
+}
+
+function extractSpotifyTrackId(spotifyUrl) {
+  try {
+    const parsed = new URL(spotifyUrl);
+    const pathParts = parsed.pathname.split("/").filter(Boolean);
+    const trackIndex = pathParts.indexOf("track");
+    const trackId = pathParts[trackIndex + 1] || "";
+    return /^[A-Za-z0-9]{16,32}$/.test(trackId) ? trackId : "";
   } catch (error) {
     return "";
   }

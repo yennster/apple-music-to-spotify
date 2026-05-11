@@ -6,11 +6,11 @@ product
 
 ## Users
 
-Jenny and friends who need a quick way to turn an Apple Music song link into a Spotify destination without opening several tabs or doing manual search.
+Jenny and friends who need a quick way to move song links between Apple Music and Spotify without opening several tabs or doing manual search.
 
 ## Product Purpose
 
-This tool exists to make music-link handoff feel instant: paste an Apple Music URL, get a Spotify URL or a useful Spotify search fallback, then copy or open it with minimal friction. Success means the page feels trustworthy, fast, and pleasant enough to keep around as a tiny everyday utility.
+This tool exists to make music-link handoff feel instant: choose the direction, paste a song URL, get the matching destination URL or a useful search fallback, then copy or open it with minimal friction. Success means the page feels trustworthy, fast, and pleasant enough to keep around as a tiny everyday utility.
 
 ## Brand Personality
 
