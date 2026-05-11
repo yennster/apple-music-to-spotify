@@ -175,6 +175,7 @@ async function resolveSpotifyMatch(appleUrl, country) {
   return {
     spotifyUrl: spotifyUrl || fallbackUrl,
     isDirect: Boolean(spotifyUrl),
+    source: payload.spotifyMatch?.source || (spotifyUrl ? "songlink" : "search-fallback"),
     pageUrl: payload.pageUrl,
     entity,
   };
@@ -207,9 +208,13 @@ function pickEntity(payload) {
 }
 
 function renderResult(match) {
-  const { entity, spotifyUrl, isDirect } = match;
+  const { entity, spotifyUrl, isDirect, source } = match;
   resolvedSpotifyUrl = spotifyUrl;
-  resolvedLabel = isDirect ? "Spotify URL" : "Spotify search";
+  resolvedLabel = isDirect
+    ? source === "spotify-search"
+      ? "Spotify match"
+      : "Spotify URL"
+    : "Spotify search";
 
   const title = entity.title || "Spotify match";
   const artist = entity.artistName || "Artist unavailable";

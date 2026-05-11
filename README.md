@@ -26,6 +26,14 @@ It then reads `linksByPlatform.spotify.url` from the JSON response. When that fi
 
 In production, the browser calls the same-origin Vercel function at `/api/links`, which proxies Songlink and avoids third-party CORS restrictions. Localhost uses Songlink directly.
 
+If Songlink does not return a Spotify URL, the Vercel function can optionally query Spotify's Search API and attach a high-confidence track match before the browser falls back to a search URL. Configure these production environment variables to enable it:
+
+```sh
+vercel env add SPOTIFY_CLIENT_ID production
+vercel env add SPOTIFY_CLIENT_SECRET production
+vercel --prod
+```
+
 ## Notes
 
 - Country defaults to United States; change the dropdown if music availability should be resolved elsewhere.
