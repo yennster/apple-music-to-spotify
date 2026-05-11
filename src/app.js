@@ -34,24 +34,9 @@ const ROUTE_CONFIG = {
   },
 };
 
-// Spotify OAuth PKCE apps expose the client ID in the browser. Never put the
-// client secret in frontend code.
-const SPOTIFY_CLIENT_ID = "9cf7de087bce4320829b07e6894bed75";
-const SPOTIFY_AUTH_ENDPOINT = "https://accounts.spotify.com/authorize";
-const SPOTIFY_TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
-const SPOTIFY_WEB_API_BASE = "https://api.spotify.com/v1";
-const SPOTIFY_PLAYER_NAME = "Apple Music to Spotify";
-const SPOTIFY_SCOPES = [
-  "streaming",
-  "user-read-email",
-  "user-read-private",
-  "user-modify-playback-state",
-];
+// Spotify playback removed — OAuth constants and scopes pruned.
 
 const STORAGE_PREFIX = "apple-music-to-spotify:";
-const AUTH_STATE_STORAGE_KEY = `${STORAGE_PREFIX}spotify-auth-state`;
-const CODE_VERIFIER_STORAGE_KEY = `${STORAGE_PREFIX}spotify-code-verifier`;
-const SPOTIFY_SESSION_STORAGE_KEY = `${STORAGE_PREFIX}spotify-session`;
 const LAST_MATCH_STORAGE_KEY = `${STORAGE_PREFIX}last-match`;
 
 const form = document.querySelector("#converter-form");
@@ -94,7 +79,6 @@ let spotifySdkPromise = null;
 let spotifyDeviceId = "";
 let spotifyPlaybackBusy = false;
 
-const spotifyApiQueue = createQueuedRateLimiter(700);
 
 let bookmarkletUrl = "";
 
@@ -813,485 +797,88 @@ function spotifyUrlToTrackUri(value) {
   return "";
 }
 
+// Spotify playback and OAuth removed. Stubs replace removed functionality so
+// the rest of the app can continue to work without playback code.
 async function startSpotifyAuth() {
-  if (!window.isSecureContext) {
-    throw new Error("Spotify sign in needs HTTPS or localhost.");
-  }
-
-  const codeVerifier = generateRandomString(64);
-  const codeChallenge = await createCodeChallenge(codeVerifier);
-  const state = generateRandomString(24);
-  const authUrl = new URL(SPOTIFY_AUTH_ENDPOINT);
-
-  sessionStorage.setItem(CODE_VERIFIER_STORAGE_KEY, codeVerifier);
-  sessionStorage.setItem(AUTH_STATE_STORAGE_KEY, state);
-
-  authUrl.search = new URLSearchParams({
-    response_type: "code",
-    client_id: SPOTIFY_CLIENT_ID,
-    scope: SPOTIFY_SCOPES.join(" "),
-    redirect_uri: getSpotifyRedirectUri(),
-    state,
-    code_challenge_method: "S256",
-    code_challenge: codeChallenge,
-  }).toString();
-
-  window.location.assign(authUrl.toString());
+  throw new Error("Spotify playback removed");
 }
 
 async function completeSpotifyAuthRedirect() {
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get("code");
-  const error = params.get("error");
-
-  if (!code && !error) {
-    return false;
-  }
-
-  if (error) {
-    cleanupSpotifyAuthState();
-    cleanupSpotifyAuthQuery();
-    setStatus("Spotify sign in was cancelled.", "error");
-    return true;
-  }
-
-  const state = params.get("state") || "";
-  const expectedState = sessionStorage.getItem(AUTH_STATE_STORAGE_KEY) || "";
-  const codeVerifier = sessionStorage.getItem(CODE_VERIFIER_STORAGE_KEY) || "";
-
-  if (!state || state !== expectedState || !codeVerifier) {
-    cleanupSpotifyAuthState();
-    cleanupSpotifyAuthQuery();
-    setStatus("Spotify sign in could not be verified.", "error");
-    return true;
-  }
-
-  try {
-    const response = await fetch(SPOTIFY_TOKEN_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: SPOTIFY_CLIENT_ID,
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: getSpotifyRedirectUri(),
-        code_verifier: codeVerifier,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Spotify token exchange failed.");
-    }
-
-    storeSpotifySession(await response.json());
-    cleanupSpotifyAuthState();
-    cleanupSpotifyAuthQuery();
-    setStatus("Spotify connected. Start the player when you are ready.", "success");
-    return true;
-  } catch (exchangeError) {
-    cleanupSpotifyAuthState();
-    cleanupSpotifyAuthQuery();
-    setStatus("Spotify sign in failed. Check the redirect URI in the Spotify app.", "error");
-    return true;
-  }
+  return false;
 }
 
 function getSpotifyRedirectUri() {
   return `${window.location.origin}${window.location.pathname}`;
 }
 
-function cleanupSpotifyAuthState() {
-  sessionStorage.removeItem(AUTH_STATE_STORAGE_KEY);
-  sessionStorage.removeItem(CODE_VERIFIER_STORAGE_KEY);
-}
-
-function cleanupSpotifyAuthQuery() {
-  const cleanUrl = new URL(window.location.href);
-  cleanUrl.searchParams.delete("code");
-  cleanUrl.searchParams.delete("state");
-  cleanUrl.searchParams.delete("error");
-  window.history.replaceState({}, document.title, `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
-}
+function cleanupSpotifyAuthState() {}
+function cleanupSpotifyAuthQuery() {}
 
 function readSpotifySession() {
-  try {
-    const serialized = sessionStorage.getItem(SPOTIFY_SESSION_STORAGE_KEY);
-    return serialized ? JSON.parse(serialized) : null;
-  } catch (error) {
-    clearSpotifySession();
-    return null;
-  }
+  return null;
 }
 
-function storeSpotifySession(payload) {
-  const existing = readSpotifySession() || {};
-  const expiresIn = Number(payload.expires_in || 3600);
-
-  sessionStorage.setItem(
-    SPOTIFY_SESSION_STORAGE_KEY,
-    JSON.stringify({
-      accessToken: payload.access_token || existing.accessToken || "",
-      refreshToken: payload.refresh_token || existing.refreshToken || "",
-      expiresAt: Date.now() + Math.max(30, expiresIn - 60) * 1000,
-    }),
-  );
-}
-
-function clearSpotifySession() {
-  sessionStorage.removeItem(SPOTIFY_SESSION_STORAGE_KEY);
-}
-
+function storeSpotifySession() {}
+function clearSpotifySession() {}
 function hasSpotifySession() {
-  const session = readSpotifySession();
-  return Boolean(session?.accessToken || session?.refreshToken);
+  return false;
 }
 
 async function ensureSpotifyAccessToken() {
-  const session = readSpotifySession();
-
-  if (session?.accessToken && session.expiresAt > Date.now() + 60000) {
-    return session.accessToken;
-  }
-
-  if (session?.refreshToken) {
-    return refreshSpotifyAccessToken(session.refreshToken);
-  }
-
-  await startSpotifyAuth();
-  throw new Error("Spotify authorization started.");
+  throw new Error("Spotify playback removed");
 }
 
-async function refreshSpotifyAccessToken(refreshToken) {
-  const response = await fetch(SPOTIFY_TOKEN_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      client_id: SPOTIFY_CLIENT_ID,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-    }),
-  });
-
-  if (!response.ok) {
-    clearSpotifySession();
-    throw new Error("Spotify session expired.");
-  }
-
-  const payload = await response.json();
-  storeSpotifySession(payload);
-  return payload.access_token;
+async function refreshSpotifyAccessToken() {
+  throw new Error("Spotify playback removed");
 }
 
 async function ensureSpotifyPlayer() {
-  if (spotifyPlayer && spotifyDeviceId) {
-    return spotifyPlayer;
-  }
-
-  await ensureSpotifyAccessToken();
-  await loadSpotifySdk();
-
-  if (!spotifyPlayer) {
-    let readyTimeoutId = 0;
-    let rejectReady;
-
-    spotifyPlayerReadyPromise = new Promise((resolve, reject) => {
-      rejectReady = reject;
-      readyTimeoutId = window.setTimeout(() => {
-        reject(new Error("Spotify player took too long to start."));
-      }, 15000);
-
-      const player = new window.Spotify.Player({
-        name: SPOTIFY_PLAYER_NAME,
-        getOAuthToken: (callback) => {
-          ensureSpotifyAccessToken()
-            .then((token) => callback(token))
-            .catch(() => callback(""));
-        },
-        volume: 0.65,
-        enableMediaSession: true,
-      });
-
-      player.addListener("ready", ({ device_id: deviceId }) => {
-        window.clearTimeout(readyTimeoutId);
-        spotifyDeviceId = deviceId;
-        updateSpotifyPlaybackUi();
-        resolve(deviceId);
-      });
-
-      player.addListener("not_ready", () => {
-        spotifyDeviceId = "";
-        updateSpotifyPlaybackUi();
-      });
-
-      player.addListener("player_state_changed", (state) => {
-        if (!state) return;
-
-        const currentTrack = state.track_window?.current_track;
-
-        if (currentTrack?.name) {
-          if (playerTitleEl) playerTitleEl.textContent = `Now: ${currentTrack.name}`;
-        }
-
-        if (state.paused) {
-          setSpotifyStatus("Paused.", "neutral");
-        } else {
-          setSpotifyStatus("Playing on this page.", "success");
-        }
-      });
-
-      player.addListener("initialization_error", ({ message }) => {
-        reject(new Error(message || "Spotify player could not initialize."));
-      });
-
-      player.addListener("authentication_error", ({ message }) => {
-        clearSpotifySession();
-        reject(new Error(message || "Spotify authentication failed."));
-      });
-
-      player.addListener("account_error", () => {
-        reject(new Error("Spotify Premium is required for browser playback."));
-      });
-
-      spotifyPlayer = player;
-    });
-
-    let connected = false;
-
-    try {
-      connected = await spotifyPlayer.connect();
-    } catch (error) {
-      rejectReady?.(error);
-    }
-
-    if (!connected) {
-      rejectReady?.(new Error("Spotify player could not connect."));
-    }
-  }
-
-  try {
-    await spotifyPlayerReadyPromise;
-  } catch (error) {
-    if (spotifyPlayer) {
-      spotifyPlayer.disconnect();
-    }
-
-    spotifyPlayer = null;
-    spotifyPlayerReadyPromise = null;
-    spotifyDeviceId = "";
-    updateSpotifyPlaybackUi();
-    throw error;
-  }
-
-  return spotifyPlayer;
+  throw new Error("Spotify playback removed");
 }
 
 function loadSpotifySdk() {
-  if (window.Spotify?.Player) {
-    return Promise.resolve();
-  }
-
-  if (spotifySdkPromise) {
-    return spotifySdkPromise;
-  }
-
-  spotifySdkPromise = new Promise((resolve, reject) => {
-    window.onSpotifyWebPlaybackSDKReady = () => resolve();
-
-    if (document.querySelector("script[data-spotify-sdk]")) {
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = "https://sdk.scdn.co/spotify-player.js";
-    script.async = true;
-    script.dataset.spotifySdk = "true";
-    script.onerror = () => reject(new Error("Spotify player script could not load."));
-    document.body.append(script);
-  });
-
-  return spotifySdkPromise;
+  return Promise.resolve();
 }
 
-async function spotifyApiFetch(path, options = {}) {
-  return spotifyApiQueue(async () => {
-    let response = null;
-
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const accessToken = await ensureSpotifyAccessToken();
-      response = await fetch(`${SPOTIFY_WEB_API_BASE}${path}`, {
-        ...options,
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-          authorization: `Bearer ${accessToken}`,
-          ...(options.headers || {}),
-        },
-      });
-
-      if (response.status === 429 && attempt === 0) {
-        const retryAfterMs = readRetryAfterMs(response);
-        setSpotifyStatus(`Spotify is pacing requests. Retrying in ${Math.ceil(retryAfterMs / 1000)}s.`);
-        await delay(retryAfterMs);
-        continue;
-      }
-
-      if (response.status === 401 && attempt === 0) {
-        const session = readSpotifySession();
-
-        if (session?.refreshToken) {
-          await refreshSpotifyAccessToken(session.refreshToken);
-          continue;
-        }
-      }
-
-      break;
-    }
-
-    if (!response?.ok) {
-      throw new Error(await readSpotifyApiError(response));
-    }
-
-    return response;
-  });
+async function spotifyApiFetch() {
+  throw new Error("Spotify playback removed");
 }
 
-function updateSpotifyPlaybackUi() {
-  const hasSession = hasSpotifySession();
-
-  spotifyDisconnectButton.hidden = !hasSession;
-  spotifyConnectButton.disabled = spotifyPlaybackBusy || Boolean(spotifyDeviceId);
-  spotifyPlayButton.disabled = spotifyPlaybackBusy || !currentSpotifyUri || !spotifyDeviceId;
-  spotifyPauseButton.disabled = spotifyPlaybackBusy || !spotifyPlayer || !spotifyDeviceId;
-
-  if (!currentSpotifyUri) {
-    spotifyConnectButton.textContent = hasSession ? "Start player" : "Connect";
-    return;
-  }
-
-  if (spotifyPlaybackBusy) {
-    spotifyConnectButton.textContent = spotifyDeviceId ? "Connected" : "Starting...";
-    return;
-  }
-
-  if (!hasSession) {
-    spotifyConnectButton.textContent = "Connect";
-    setSpotifyStatus("Connect a Spotify Premium account to use browser playback.");
-    return;
-  }
-
-  if (!spotifyDeviceId) {
-    spotifyConnectButton.textContent = "Start player";
-    setSpotifyStatus("Account connected. Start the player to play this track.");
-    return;
-  }
-
-  spotifyConnectButton.textContent = "Connected";
-  setSpotifyStatus("Ready to play on this page.", "success");
-}
-
-function setSpotifyBusy(isBusy) {
-  spotifyPlaybackBusy = isBusy;
-  updateSpotifyPlaybackUi();
-}
-
+function updateSpotifyPlaybackUi() {}
+function setSpotifyBusy() {}
 function setSpotifyStatus(message, tone = "neutral") {
-  playerStatusEl.textContent = message;
-  playerStatusEl.dataset.tone = tone;
+  if (playerStatusEl) {
+    playerStatusEl.textContent = message || "";
+    playerStatusEl.dataset.tone = tone;
+  }
 }
 
-async function readSpotifyApiError(response) {
-  if (!response) {
-    return "Spotify request failed.";
-  }
-
-  if (response.status === 403) {
-    return "Spotify Premium is required for browser playback.";
-  }
-
-  if (response.status === 429) {
-    return "Spotify rate limit reached. Wait a moment and try again.";
-  }
-
-  try {
-    const payload = await response.json();
-    return payload.error?.message || payload.error_description || "Spotify request failed.";
-  } catch (error) {
-    return "Spotify request failed.";
-  }
+async function readSpotifyApiError() {
+  return "Spotify playback removed";
 }
 
 function readableSpotifyError(error) {
-  const message = error?.message || "Spotify playback failed.";
-
-  if (message.includes("authorization started")) {
-    return "Finish Spotify sign in to continue.";
-  }
-
-  if (message.toLowerCase().includes("premium")) {
-    return "Spotify Premium is required for browser playback.";
-  }
-
-  if (message.toLowerCase().includes("rate limit")) {
-    return "Spotify rate limit reached. Wait a moment and try again.";
-  }
-
-  return message;
+  return error?.message || "Spotify playback removed.";
 }
 
-async function createCodeChallenge(codeVerifier) {
-  const bytes = new TextEncoder().encode(codeVerifier);
-  const digest = await window.crypto.subtle.digest("SHA-256", bytes);
-  return base64UrlEncode(new Uint8Array(digest));
+async function createCodeChallenge() {
+  return "";
 }
 
-function base64UrlEncode(bytes) {
-  let binary = "";
-
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-
-  return window.btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+function base64UrlEncode() {
+  return "";
 }
 
-function generateRandomString(length) {
-  const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  const values = window.crypto.getRandomValues(new Uint8Array(length));
-  return [...values].map((value) => possible[value % possible.length]).join("");
+function generateRandomString() {
+  return "";
 }
 
 function createQueuedRateLimiter(minIntervalMs) {
-  let chain = Promise.resolve();
-  let nextRunAt = 0;
-
-  return (task) => {
-    const run = chain
-      .catch(() => {})
-      .then(async () => {
-        const waitMs = Math.max(0, nextRunAt - Date.now());
-
-        if (waitMs) {
-          await delay(waitMs);
-        }
-
-        nextRunAt = Date.now() + minIntervalMs;
-        return task();
-      });
-
-    chain = run.catch(() => {});
-    return run;
-  };
+  return (task) => task();
 }
 
-function readRetryAfterMs(response) {
-  const retryAfterSeconds = Number(response.headers.get("retry-after"));
-  return Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
-    ? retryAfterSeconds * 1000
-    : 3000;
+function readRetryAfterMs() {
+  return 3000;
 }
 
 function delay(ms) {
